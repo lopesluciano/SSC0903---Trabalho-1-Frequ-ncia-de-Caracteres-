@@ -1,0 +1,3 @@
+## Trabalho 1 - SSC0903: Diga-me a frequência (CAD - 2025/1)
+
+Este projeto implementa uma solução paralela em C utilizando OpenMP para o problema de contagem de frequência de caracteres em textos, baseado no problema 1251 do URI Online Judge. O programa lê várias linhas de texto da entrada padrão (stdin) e imprime, para cada linha, a frequência de cada caractere em ordem crescente de frequência (e, em caso de empate, por valor ASCII). A entrada é fornecida via redirecionamento de fluxo e a saída é impressa na saída padrão (stdout). A implementação segue as diretrizes da disciplina SSC0903 – CAD, ministrada em 2025/1.
