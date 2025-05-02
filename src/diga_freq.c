@@ -50,6 +50,59 @@ int compare(const void *primeiro, const void *segundo){
     // Se forem diferentes, a frequencia basta para diferencia-los. Se nao (se forem iguais) retornamos a diferenca entre os ascii (que sempre existira, por obviedade!)
 }
 
+
+// Junta as partes ordenadas do vetor v
+void merge(CharFreq *v, int inicio, int meio, int fim) {
+    int n1 = meio - inicio + 1;
+    int n2 = fim - meio;
+
+    //Criar vetores temporarios para as duas metades L e R.
+    CharFreq *L = malloc(n1 * sizeof(CharFreq));
+    CharFreq *R = malloc(n2 * sizeof(CharFreq));
+
+    // Copia os elementos do vetor v original para L e R.
+    for (int i = 0; i < n1; i++) L[i] = v[inicio + i];
+    for (int i = 0; i < n2; i++) R[i] = v[meio + 1 + i];
+
+    // Compara e ordena os elementos de L[i] e R[j]
+    int i = 0, j = 0, k = inicio;
+    while (i < n1 && j < n2) {
+        // se L[i] for menor ou igual copia ele para v[k]
+        if (compare(&L[i], &R[j]) <= 0) 
+            v[k++] = L[i++];
+        // caso contrario, copia R[j] para v[k]
+        else
+            v[k++] = R[j++];
+    }
+
+    // Copia elementos que restarem em R ou L, se um dos vetores for maior que o outro. A ordem continua garantida pois os elementos do vetor restante estao ordenados e devem ser maiores que o maior elemento do vetor menor.
+    while (i < n1) v[k++] = L[i++];
+    while (j < n2) v[k++] = R[j++];
+
+    free(L);
+    free(R);
+}
+
+void mergeSortParalelo(CharFreq *v, int inicio, int fim) {
+    if (inicio < fim) { // Caso Base, tamanho 1
+        int meio = (inicio + fim) / 2; 
+
+        // Criar uma tarefa para ordenar a metade esquerda (recursivamente)
+        #pragma omp task shared(v)
+        mergeSortParalelo(v, inicio, meio);
+
+        // Criar uma tarefa para ordenar a metade esquerda (recursivamente)
+        #pragma omp task shared(v)
+        mergeSortParalelo(v, meio + 1, fim);
+
+        #pragma omp taskwait // Espera ambas tarefas acabarem
+
+        merge(v, inicio, meio, fim); // Junta e ordena as metades dos vetores
+    }
+}
+
+
+
 int main(){
     char texto[TAM]; // Entrada do usuario: max 1000 caracteres + '\0'
     int first = 1;
@@ -114,7 +167,13 @@ int main(){
                         }
                             
                         // Vamos utilizar a funcao qsort
-                        qsort(charFreq, 96, sizeof(CharFreq), compare); 
+                        //qsort(charFreq, 96, sizeof(CharFreq), compare); 
+
+                        #pragma omp parallel // Regiao paralela da funcao mergeSort
+                        {
+                            #pragma omp single
+                            mergeSortParalelo(charFreq, 0, 95);
+                        }
 
                         #pragma omp critical
                         {
