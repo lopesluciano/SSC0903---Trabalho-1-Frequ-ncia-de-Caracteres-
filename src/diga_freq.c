@@ -32,7 +32,6 @@ Executar com arquivo de entrada:
 
 #define TAM 1000
 #define ASCII_RANGE 96
-#define MAX_LINES 10000
 
 // Estrutura que armazena o par: DADO e sua FREQUENCIA correspondente (numero de vezes que apareceu)
 typedef struct{
