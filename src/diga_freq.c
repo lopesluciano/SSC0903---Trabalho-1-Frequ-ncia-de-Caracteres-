@@ -30,7 +30,9 @@ Executar com arquivo de entrada:
 #include <string.h>
 #include <omp.h>
 
-#define TAM 1001
+#define TAM 1000
+#define ASCII_RANGE 96
+#define MAX_LINES 10000
 
 // Estrutura que armazena o par: DADO e sua FREQUENCIA correspondente (numero de vezes que apareceu)
 typedef struct{
@@ -101,104 +103,139 @@ void mergeSortParalelo(CharFreq *v, int inicio, int fim) {
     }
 }
 
+char *processa_linha(const char *linha){
+    int frequencias[ASCII_RANGE] = {0};
+    int tam = strlen(linha);
 
+    CharFreq charFreq[ASCII_RANGE];
+    int contador = 0; // Conta quant
 
-int main(){
-    char texto[TAM]; // Entrada do usuario: max 1000 caracteres + '\0'
-    int first = 1;
+    // #pragma omp parallel
+    // {
+    //     #pragma omp single
+    //     printf("Threads na região paralela: %d\n", omp_get_num_threads());
+    // }
 
-    // Criamos o time de threads que executará cada tarefa
-    #pragma omp parallel
-    {
-        #pragma omp single nowait // Uma única thread irá ser responsável por criar as tarefas: A thread leitora lê linha por linha
-        {
-            while(fgets(texto, TAM, stdin)){
+    /* A cláusula reduction foi usada para o segundo particionamento (dada uma string, vamos fatiá-la entre as threads)
 
-                char* linha = (char*) malloc(strlen(texto) + 1); // Aloca memória para a cópia (+1 para o '\0')
-                if (linha == NULL) {
-                    // Trata possiveis erros na alocacao
-                    perror("Erro de alocação de memória para linha");
-                    // Se a alocação falhar, sair do loop de leitura. Da pra fazer isso tranquilo, pois é só a thread single que está aqui
-                    break; 
-                }
+    - Cada thread mantém uma cópia local do array frequencias (com 96 posições).
 
-                // Copiar o conteúdo LIDO PELO fgets (de 'texto') para a NOVA memória alocada.
-                strcpy(linha, texto);
+    Ex.: 4 threads e tam = 1000, cada thread processará 250 iterações.
 
-                // Este tamanho será usado na Task antes de remover o \n.
-                int tamanhoOriginal_para_task = strlen(linha);
-
-                #pragma omp task firstprivate(linha, tamanhoOriginal_para_task)
-                {
-                    int tam = tamanhoOriginal_para_task; // Isso pode parecer estranho, essa mudanca de tam, mas se voce faz dentro da task, da problema, uma vez que 
-
-                    // Preparacao da string
-                    if (tam > 0 && linha[tam - 1] == '\n') { // Se há algo escrito, e na última posição tem a quebra de linha, trocamos ela pelo final de string '\0'
-                        linha[tam - 1] = '\0';
-                        tam--;
-                    } 
-            
-                    // Se a linha ficou vazia após remover o \n, pular processamento.
-                    if (tam == 0){
-                        #pragma omp critical // Devemos garantir que apenas uma thread leia isso, já que o putchar deve ser executado apenas uma vez
-                        {
-                            if(!first)
-                                putchar('\n');  
-                            first = 0;
-                        }
-                        free(linha);
-                    } else { // Se o tamanho não for 0, temos muito trabalho a ser feito
-                        
-                        // Criamos um vetor de tuplas, em que cada par é dado pelo char e sua frequencia correspondente. 96 posições referentes as possibilidades de codigo ascii das especificacoes (32 a 128)
-                        CharFreq charFreq[96];
-                        int i; 
-                        
-                        // Inicializando nossa struct que armazena os dados (char + freq)
-                        for(i = 0; i < 96; i++){
-                            charFreq[i].ascii = 32 + i; // Começa no 32 e vai até o código 32 + 95 = 127
-                            charFreq[i].frequencia = 0; // Inicializamos as frequências todas com 0
-                        }
-                
-                        #pragma omp parallel for shared(charFreq, linha, tam) schedule(static)       
-                        for(i = 0; i < tam; i++){
-                            int posicaoCorrigida = linha[i] - 32;
-                            #pragma omp atomic
-                            ++charFreq[posicaoCorrigida].frequencia;
-                        }
-                            
-                        // Vamos utilizar a funcao qsort
-                        //qsort(charFreq, 96, sizeof(CharFreq), compare); 
-
-                        #pragma omp parallel // Regiao paralela da funcao mergeSort
-                        {
-                            #pragma omp single
-                            mergeSortParalelo(charFreq, 0, 95);
-                        }
-
-                        #pragma omp critical
-                        {
-                            if(!first)
-                                putchar('\n');
-        
-                            // Agora basta printar o resultado, para todos aqueles valores que de fato foram digitados
-                            for(i = 0; i < 96; i++){
-                                if(charFreq[i].frequencia > 0) // Ou seja, se foi digitado pelo menos uma vez, printamos
-                                    printf("%d %d\n", charFreq[i].ascii, charFreq[i].frequencia);
-                            } 
-                            first = 0;
-                        }
-
-                        free(linha);
-                    }
-            
-                }
-            
-            }   
-
+    - Testar com schedule(dynamic) e medir tempo (reduziu real quase pela metade)
+    */
+    // double wtime = omp_get_wtime();
+    #pragma omp parallel for reduction(+:frequencias[:96]) /*num_threads(4)*/ schedule(dynamic) 
+    for(int i = 0; i < tam; i++){ 
+        if (linha[i] >= 32 && linha[i] < 128){
+            frequencias[(int)(linha[i] - 32)]++;
         }
-        #pragma omp taskwait
-    
+        // printf("Número de threads: %d\n", omp_get_num_threads());
+        // //Depuração: Mostra qual thread está processando cada iteração
+        // printf("Thread %d processando i = %d\n", omp_get_thread_num(), i);
+    }
+    // wtime = omp_get_wtime() - wtime;
+    // printf("Tempo: %f segundos\n", wtime);
+
+    for(int i = 0; i < ASCII_RANGE; i++){
+        if(frequencias[i] > 0){
+            charFreq[contador].ascii = i + 32;
+            charFreq[contador].frequencia = frequencias[i];
+            contador++;
+        }
     }
 
+    /*
+    
+    Diferença importante do paralelo para o sequencial
+
+    - Aqui, charFreq[i] não representa mais "o caractere de código ASCII i+32".
+    - Agora, ele representa "o i-ésimo caractere com frequência > 0 da string atual".
+    
+    - Só importa os "contador" primeiros elementos, será neles que aplicaremos o sorting, e não em todos os 96 possíveis elementos
+
+    */ 
+
+    #pragma omp parallel
+    {
+        #pragma omp single
+        mergeSortParalelo(charFreq, 0, contador - 1);
+    }
+
+    char *buffer = malloc(sizeof(char) * (contador * 10 + 1));
+    char *p = buffer;
+
+    for (int i = 0; i < contador; i++) {
+        p += sprintf(p, "%d %d\n", charFreq[i].ascii, charFreq[i].frequencia);
+    }
+
+    *p = '\0';
+    return buffer;
+}
+
+
+int main()
+{
+    char texto[TAM]; // Armazena temporariamente uma linha lida da entrada padrão
+    int num_linhas = 0; // Conta o número de linhas processadas
+    int capacidade = 1000; // Define a capacidade inicial do array que armazenará as todas as linhas lidas
+
+
+    char **linhas_processadas = malloc(sizeof(char *) * capacidade); // Array que armazenará as saídas processadas de cada linha
+    if (!linhas_processadas) { 
+        perror("Erro ao alocar memória\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Permitiremos que tarefas paralelas criem outras tarefas paralelas
+    omp_set_nested(1); // Habilitando o paralelismo aninhado, uma vez que nosso particionamento de dados ocorre em duas etapas: na quebra do arquivo em linhas, e na quebra de linhas em blocos de caracteres
+    omp_set_num_threads(omp_get_num_procs());
+
+    #pragma omp parallel
+    {
+        #pragma omp single // A leitura é feita de forma sequencial por apenas uma thread, a qual delegará as tasks
+        {
+            while (fgets(texto, TAM, stdin)) // Lê uma linha do arquivo e armazena no buffer texto
+            {
+
+                texto[strcspn(texto, "\n")] = '\0'; // Eliminando a quebra de linha
+                if (texto[0] == '\0') // Se não leu nada, vamos para a próxima linha
+                    continue; 
+                
+
+                char *linha = strdup(texto); // Salvamos o texto temporário lido por fgets
+                int indice_atual = num_linhas++; // Salva o índice da linha atual e incrementa o número de linhas lido (apenas após salvar)
+
+                #pragma omp task firstprivate(linha, indice_atual)
+                {
+                    char *saida = processa_linha(linha);
+                    free(linha);
+
+                    #pragma omp critical
+                    {
+                        if (indice_atual >= capacidade)
+                        {
+                            capacidade *= 2;
+                            linhas_processadas = realloc(linhas_processadas, capacidade * sizeof(char *));
+                        }
+                        // "Independente de quando eu terminei, se eu sou a resposta da linha 5, e vou escrever em linhas_processadas[5]".
+                        
+                        linhas_processadas[indice_atual] = saida;
+                    }
+
+                }
+            }
+        }
+    }
+
+    for (int i = 0; i < num_linhas; i++)
+    {
+        if(i)
+            printf("\n");
+        printf("%s", linhas_processadas[i]);
+        free(linhas_processadas[i]);
+    }
+
+    free(linhas_processadas);
     return 0;
 }

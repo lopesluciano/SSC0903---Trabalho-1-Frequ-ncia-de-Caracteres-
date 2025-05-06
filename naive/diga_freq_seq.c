@@ -19,7 +19,7 @@ Executar com arquivo de entrada:
 #include <stdio.h>
 #include <stdlib.h>
 
-#define TAM 1001
+#define TAM 1002
 
 // Estrutura que armazena o par: DADO e sua FREQUENCIA correspondente (numero de vezes que apareceu)
 typedef struct{
@@ -55,7 +55,7 @@ int main(){
         }
 
         // Contabilizando a frequencia de cada simbolo ascii
-        for(charAtual = texto; *charAtual != '\n' && *charAtual != '\r' && *charAtual != '\0'; charAtual++){
+        for(charAtual = texto; *charAtual != '\n'; charAtual++){
             ++charFreq[*charAtual - 32].frequencia; 
         } // Codigo altamente elegante que pega o ascii correspondente a cada char da string e vai na posicao associada a esse ascii (transladada de 32, ou seja, na posicao 0 temos o ascii 32, que é o ' ' espaco) e incrementa a frequencia (ou seja, apareceu +1 vez)
         
