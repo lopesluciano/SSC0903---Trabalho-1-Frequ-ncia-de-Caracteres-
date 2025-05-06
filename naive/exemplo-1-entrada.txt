@@ -1,0 +1,8 @@
+There is a growing demand for correct parallel programs, mainly due to nowadays availability of parallel architectures.
+Structural testing allows identifying defects by analyzing the internal structures of a program.
+However, communication and synchronization in parallel programs bring new challenges to the testing activity, such as nondeterminism.
+Message-passing parallel programs require structural testing criteria to support test models and tools capable of covering synchronization events with dynamic behaviors.
+Testing such primitives inside loops in message-passing programs is still challenging with nontrivial solutions for criteria, models, and tools.
+This article proposes new structural testing criteria to guide the selection of test cases, improving the quality of message-passing programsby revealing nondeterminism-related defects present in loops.
+We present a new test model to support our criteria for structural testing of MPI-applications and implement the proposed criteria in the tool ValiMPI.
+The analysis of nondeterminism-related defects, paths inside loops, loop iterations, and nested loops allow us to establish a structured testing model.We validate the testing criteria through experimental studies using ValiMPI. Our results show that our criteria reveal unknown defects from communication and synchronization events in different loop iterations, increasing the quality of message-passing parallel programs.
