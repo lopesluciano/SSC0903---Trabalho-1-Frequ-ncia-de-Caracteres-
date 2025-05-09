@@ -32,6 +32,7 @@ Executar com arquivo de entrada:
 
 #define TAM 1000
 #define ASCII_RANGE 96
+#define LIM_SORT_SEQ 64 // Definindo o limite para o sort sequencial (qsort)
 
 // Estrutura que armazena o par: DADO e sua FREQUENCIA correspondente (numero de vezes que apareceu)
 typedef struct{
@@ -58,11 +59,15 @@ void merge(CharFreq *v, int inicio, int meio, int fim) {
     int n2 = fim - meio;
 
     //Criar vetores temporarios para as duas metades L e R.
+    
     CharFreq *L = malloc(n1 * sizeof(CharFreq));
     CharFreq *R = malloc(n2 * sizeof(CharFreq));
 
     // Copia os elementos do vetor v original para L e R.
+    #pragma omp simd
     for (int i = 0; i < n1; i++) L[i] = v[inicio + i];
+
+    #pragma omp simd
     for (int i = 0; i < n2; i++) R[i] = v[meio + 1 + i];
 
     // Compara e ordena os elementos de L[i] e R[j]
@@ -85,20 +90,23 @@ void merge(CharFreq *v, int inicio, int meio, int fim) {
 }
 
 void mergeSortParalelo(CharFreq *v, int inicio, int fim) {
-    if (inicio < fim) { // Caso Base, tamanho 1
-        int meio = (inicio + fim) / 2; 
+    if (inicio < fim) {
+        if ((fim - inicio + 1) < LIM_SORT_SEQ) { // Caso Base, tamanho 1
+            qsort(v + inicio, fim - inicio + 1, sizeof(CharFreq), compare); // Bem mais eficiente para pequenos arrays, que é o caso (não compensa o overhead de comunicação)
+        } else {
+            int meio = (inicio + fim) / 2;
 
-        // Criar uma tarefa para ordenar a metade esquerda (recursivamente)
-        #pragma omp task shared(v)
-        mergeSortParalelo(v, inicio, meio);
+            // Criar uma tarefa para ordenar a metade esquerda (recursivamente)
+            #pragma omp task shared(v)
+            mergeSortParalelo(v, inicio, meio);
 
-        // Criar uma tarefa para ordenar a metade esquerda (recursivamente)
-        #pragma omp task shared(v)
-        mergeSortParalelo(v, meio + 1, fim);
+            // Criar uma tarefa para ordenar a metade direita (recursivamente)
+            #pragma omp task shared(v)
+            mergeSortParalelo(v, meio + 1, fim);
 
-        #pragma omp taskwait // Espera ambas tarefas acabarem
-
-        merge(v, inicio, meio, fim); // Junta e ordena as metades dos vetores
+            #pragma omp taskwait // Espera ambas tarefas acabarem
+            merge(v, inicio, meio, fim); // Junta e ordena as metades dos vetores
+        }
     }
 }
 
@@ -107,7 +115,7 @@ char *processa_linha(const char *linha){
     int tam = strlen(linha);
 
     CharFreq charFreq[ASCII_RANGE];
-    int contador = 0; // Conta quant
+    int contador = 0;
 
     // #pragma omp parallel
     // {
@@ -124,13 +132,13 @@ char *processa_linha(const char *linha){
     - Testar com schedule(dynamic) e medir tempo (reduziu real quase pela metade)
     */
     // double wtime = omp_get_wtime();
-    #pragma omp parallel for reduction(+:frequencias[:96]) /*num_threads(4)*/ schedule(dynamic) 
+    #pragma omp parallel for reduction(+:frequencias[:ASCII_RANGE]) schedule(dynamic) /*num_threads(4)*/  
     for(int i = 0; i < tam; i++){ 
         if (linha[i] >= 32 && linha[i] < 128){
             frequencias[(int)(linha[i] - 32)]++;
         }
         // printf("Número de threads: %d\n", omp_get_num_threads());
-        // //Depuração: Mostra qual thread está processando cada iteração
+        // //Depuração: Qual thread está processando cada iteração
         // printf("Thread %d processando i = %d\n", omp_get_thread_num(), i);
     }
     // wtime = omp_get_wtime() - wtime;
@@ -157,7 +165,7 @@ char *processa_linha(const char *linha){
 
     #pragma omp parallel
     {
-        #pragma omp single
+        #pragma omp single // Apenas uma thread delegará as tarefas do merge sort paralelo
         mergeSortParalelo(charFreq, 0, contador - 1);
     }
 
@@ -172,69 +180,67 @@ char *processa_linha(const char *linha){
     return buffer;
 }
 
-
 int main()
 {
     char texto[TAM]; // Armazena temporariamente uma linha lida da entrada padrão
     int num_linhas = 0; // Conta o número de linhas processadas
-    int capacidade = 1000; // Define a capacidade inicial do array que armazenará as todas as linhas lidas
+    int capacidade = 1000; // Capacidade inicial do array de linhas lidas
 
-
-    char **linhas_processadas = malloc(sizeof(char *) * capacidade); // Array que armazenará as saídas processadas de cada linha
-    if (!linhas_processadas) { 
-        perror("Erro ao alocar memória\n");
+    char **linhas = malloc(sizeof(char *) * capacidade); // Armazena todas as linhas lidas da entrada
+    if (!linhas) {
+        perror("Erro ao alocar memória para as linhas\n");
         exit(EXIT_FAILURE);
     }
 
-    // Permitiremos que tarefas paralelas criem outras tarefas paralelas
-    omp_set_nested(1); // Habilitando o paralelismo aninhado, uma vez que nosso particionamento de dados ocorre em duas etapas: na quebra do arquivo em linhas, e na quebra de linhas em blocos de caracteres
-    omp_set_num_threads(omp_get_num_procs());
-
-    #pragma omp parallel
+    // Leitura sequencial de todas as linhas da entrada padrão
+    while (fgets(texto, TAM, stdin)) // Lê uma linha por vez
     {
-        #pragma omp single // A leitura é feita de forma sequencial por apenas uma thread, a qual delegará as tasks
+        texto[strcspn(texto, "\n")] = '\0'; // Remove a quebra de linha lida pelo fgets
+        if (texto[0] == '\0') // Se a linha estiver vazia, ignora
+            continue;
+
+        if (num_linhas >= capacidade) // Se necessário, dobra a capacidade do array
         {
-            while (fgets(texto, TAM, stdin)) // Lê uma linha do arquivo e armazena no buffer texto
-            {
-
-                texto[strcspn(texto, "\n")] = '\0'; // Eliminando a quebra de linha
-                if (texto[0] == '\0') // Se não leu nada, vamos para a próxima linha
-                    continue; 
-                
-
-                char *linha = strdup(texto); // Salvamos o texto temporário lido por fgets
-                int indice_atual = num_linhas++; // Salva o índice da linha atual e incrementa o número de linhas lido (apenas após salvar)
-
-                #pragma omp task firstprivate(linha, indice_atual)
-                {
-                    char *saida = processa_linha(linha);
-                    free(linha);
-
-                    #pragma omp critical
-                    {
-                        if (indice_atual >= capacidade)
-                        {
-                            capacidade *= 2;
-                            linhas_processadas = realloc(linhas_processadas, capacidade * sizeof(char *));
-                        }
-                        // "Independente de quando eu terminei, se eu sou a resposta da linha 5, e vou escrever em linhas_processadas[5]".
-                        
-                        linhas_processadas[indice_atual] = saida;
-                    }
-
-                }
-            }
+            capacidade *= 2;
+            linhas = realloc(linhas, capacidade * sizeof(char *));
         }
+
+        linhas[num_linhas++] = strdup(texto); // Copia a linha lida para o array
     }
 
-    for (int i = 0; i < num_linhas; i++)
-    {
-        if(i)
+    char **linhas_processadas = malloc(sizeof(char *) * num_linhas); // Array que armazenará a saída de cada linha processada
+    if (!linhas_processadas) {
+        perror("Erro ao alocar memória para as saídas\n");
+        exit(EXIT_FAILURE);
+    }
+
+    //double wtime = omp_get_wtime(); // Marca o tempo inicial da execução paralela
+
+    // Processamento paralelo das linhas lidas
+    #pragma omp parallel for schedule(dynamic) // Cada thread processa uma linha; balanceamento dinâmico
+    for (int i = 0; i < num_linhas; i++) {
+        linhas_processadas[i] = processa_linha(linhas[i]); // Processa a linha e armazena a saída
+        free(linhas[i]); // Libera a memória da linha original após processá-la
+    }
+
+    //wtime = omp_get_wtime() - wtime; // Calcula o tempo total de execução paralela
+
+    //Impressão dos resultados (comentada por padrão)
+    for (int i = 0; i < num_linhas; i++) {
+        if (i)
             printf("\n");
         printf("%s", linhas_processadas[i]);
-        free(linhas_processadas[i]);
+        free(linhas_processadas[i]); // Libera a memória da linha processada
     }
 
-    free(linhas_processadas);
+    // Apenas libera a memória, sem imprimir
+    // for (int i = 0; i < num_linhas; i++) {
+    //     free(linhas_processadas[i]); // Libera a memória da saída de cada linha
+    // }
+
+    // printf("Tempo total: %lf segundos\n", wtime); // Mostra o tempo total de execução
+
+    free(linhas); // Libera memória do vetor de entrada
+    free(linhas_processadas); // Libera memória do vetor de saída
     return 0;
 }
