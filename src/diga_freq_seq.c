@@ -66,20 +66,20 @@ int main(){
         qsort(charFreq, 96, sizeof(CharFreq), compare); // Vetor, num de elementos, tamanho do elemento, funcao de comparacao que define a ordem dos elementos
         // Essa func de comparacao retorna negativo se o primeiro elemento for menor que o segundo, zeor se forem iguais e positivo se o primeiro for maior que o segundo
 
-        // if(!first)
-        //     putchar('\n');
+        if(!first)
+            putchar('\n');
 
-        // // Agora basta printar o resultado, para todos aqueles valores que de fato foram digitados
-        // for(i = 0; i < 96; i++){
-        //     if(charFreq[i].frequencia > 0) // Ou seja, se foi digitado pelo menos uma vez, printamos
-        //         printf("%d %d\n", charFreq[i].ascii, charFreq[i].frequencia);
-        // }
+        // Agora basta printar o resultado, para todos aqueles valores que de fato foram digitados
+        for(i = 0; i < 96; i++){
+            if(charFreq[i].frequencia > 0) // Ou seja, se foi digitado pelo menos uma vez, printamos
+                printf("%d %d\n", charFreq[i].ascii, charFreq[i].frequencia);
+        }
 
         first = 0;
     }
 
     wtime = omp_get_wtime() - wtime;
-    printf("Tempo total: %lf segundos\n", wtime);
+    // printf("Tempo total: %lf segundos\n", wtime);
 
     return 0;
 }
