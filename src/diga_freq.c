@@ -1,7 +1,7 @@
 // Lucas Lima Romero (13676325)
 // Luciano Gonçalves Lopes Filho (13676520)
 // Marco Antonio Gaspar Garcia (11833581)
-// Rauany Martinez Secci (?)
+// Rauany Martinez Secci (13721217)
 
 /* 
     Próximos passos: 0. Implementar o merge sort paralelo
@@ -131,19 +131,20 @@ char *processa_linha(const char *linha){
 
     - Testar com schedule(dynamic) e medir tempo (reduziu real quase pela metade)
     */
+    
     // double wtime = omp_get_wtime();
-    #pragma omp parallel for reduction(+:frequencias[:ASCII_RANGE]) schedule(dynamic) /*num_threads(4)*/  
+    //#pragma omp parallel for reduction(+:frequencias[:ASCII_RANGE]) schedule(static) /*num_threads(4)*/  
     for(int i = 0; i < tam; i++){ 
-        if (linha[i] >= 32 && linha[i] < 128){
-            frequencias[(int)(linha[i] - 32)]++;
-        }
-        // printf("Número de threads: %d\n", omp_get_num_threads());
-        // //Depuração: Qual thread está processando cada iteração
-        // printf("Thread %d processando i = %d\n", omp_get_thread_num(), i);
+        if (linha[i] >= 32 && linha[i] < 128) frequencias[(int)(linha[i] - 32)]++;
+        
+        //printf("Número de threads: %d\n", omp_get_num_threads());
+        //Depuração: Qual thread está processando cada iteração
+        //printf("Thread %d processando i = %d\n", omp_get_thread_num(), i);
     }
     // wtime = omp_get_wtime() - wtime;
     // printf("Tempo: %f segundos\n", wtime);
 
+    // Avaliamos que não valeria a pena paralelizar esse loop pequeno, pois o overhead de sincronização com atomic ou critical se tornou maior que o ganho de tempo.
     for(int i = 0; i < ASCII_RANGE; i++){
         if(frequencias[i] > 0){
             charFreq[contador].ascii = i + 32;
@@ -182,8 +183,9 @@ char *processa_linha(const char *linha){
 
 int main()
 {
+    //omp_set_nested(1);
     char texto[TAM]; // Armazena temporariamente uma linha lida da entrada padrão
-    int num_linhas = 0; // Conta o número de linhas processadas
+    int num_linhas = 0; // Conta o número de linhas lidas
     int capacidade = 1000; // Capacidade inicial do array de linhas lidas
 
     char **linhas = malloc(sizeof(char *) * capacidade); // Armazena todas as linhas lidas da entrada
@@ -192,6 +194,8 @@ int main()
         exit(EXIT_FAILURE);
     }
 
+    omp_set_num_threads(omp_get_num_procs());
+    
     // Leitura sequencial de todas as linhas da entrada padrão
     while (fgets(texto, TAM, stdin)) // Lê uma linha por vez
     {
@@ -214,31 +218,34 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    //double wtime = omp_get_wtime(); // Marca o tempo inicial da execução paralela
+    double wtime = omp_get_wtime(); // Marca o tempo inicial da execução paralela
 
     // Processamento paralelo das linhas lidas
     #pragma omp parallel for schedule(dynamic) // Cada thread processa uma linha; balanceamento dinâmico
     for (int i = 0; i < num_linhas; i++) {
         linhas_processadas[i] = processa_linha(linhas[i]); // Processa a linha e armazena a saída
         free(linhas[i]); // Libera a memória da linha original após processá-la
+        
+        //Depuração: Qual thread está processando cada iteração
+        //printf("Thread %d processando i = %d\n", omp_get_thread_num(), i);
     }
 
-    //wtime = omp_get_wtime() - wtime; // Calcula o tempo total de execução paralela
+    wtime = omp_get_wtime() - wtime; // Calcula o tempo total de execução paralela
 
-    //Impressão dos resultados (comentada por padrão)
-    for (int i = 0; i < num_linhas; i++) {
-        if (i)
-            printf("\n");
-        printf("%s", linhas_processadas[i]);
-        free(linhas_processadas[i]); // Libera a memória da linha processada
-    }
-
-    // Apenas libera a memória, sem imprimir
+    // //Impressão dos resultados (comentada por padrão)
     // for (int i = 0; i < num_linhas; i++) {
-    //     free(linhas_processadas[i]); // Libera a memória da saída de cada linha
+    //     if (i)
+    //         printf("\n");
+    //     printf("%s", linhas_processadas[i]);
+    //     free(linhas_processadas[i]); // Libera a memória da linha processada
     // }
 
-    // printf("Tempo total: %lf segundos\n", wtime); // Mostra o tempo total de execução
+    // Apenas libera a memória, sem imprimir
+    for (int i = 0; i < num_linhas; i++) {
+        free(linhas_processadas[i]); // Libera a memória da saída de cada linha
+    }
+
+    printf("Tempo total: %lf segundos\n", wtime); // Mostra o tempo total de execução
 
     free(linhas); // Libera memória do vetor de entrada
     free(linhas_processadas); // Libera memória do vetor de saída
